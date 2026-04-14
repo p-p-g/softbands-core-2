@@ -26,8 +26,18 @@ contract MockAavePool {
     }
 
     function repay(address asset, uint256 amount, uint256, address onBehalfOf) external returns (uint256) {
-        IERC20(asset).transferFrom(msg.sender, address(this), amount);
-        borrowed[asset][onBehalfOf] -= amount;
-        return amount;
+        uint256 debt = borrowed[asset][onBehalfOf];
+        uint256 actualRepay = amount > debt ? debt : amount;
+        IERC20(asset).transferFrom(msg.sender, address(this), actualRepay);
+        borrowed[asset][onBehalfOf] -= actualRepay;
+        return actualRepay;
+    }
+
+    /// @notice Stub for getUserAccountData — returns debtBase=0 so
+    ///         _capToSafeAaveWithdraw always returns the full requested amount.
+    function getUserAccountData(address) external pure returns (
+        uint256, uint256, uint256, uint256, uint256, uint256
+    ) {
+        return (0, 0, 0, 0, 0, 0);
     }
 }

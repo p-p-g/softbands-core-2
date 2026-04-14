@@ -34,4 +34,14 @@ interface IAavePool {
         uint256 interestRateMode,
         address onBehalfOf
     ) external returns (uint256);
+
+    /// @notice Returns the user account data across all reserves
+    function getUserAccountData(address user) external view returns (
+        uint256 totalCollateralBase,
+        uint256 totalDebtBase,
+        uint256 availableBorrowsBase,
+        uint256 currentLiquidationThreshold,
+        uint256 ltv,
+        uint256 healthFactor
+    );
 }

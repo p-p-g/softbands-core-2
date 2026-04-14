@@ -50,11 +50,17 @@ await engine.setAuctionParams(100, 50, 5, 500, 10);
 console.log("Auction parameters set");
 
 // ─── Deploy AaveAdapter ──────────────────────────────────────────────
+// Mock aWETH token (mirrors what Aave would mint as collateral receipt)
+const mockAWeth = await MockERC20.deploy("Mock aWETH", "aWETH", 18);
+await mockAWeth.waitForDeployment();
+console.log("MockAWeth:", await mockAWeth.getAddress());
+
 const AaveAdapter = await ethers.getContractFactory("AaveAdapter");
 const adapter = await AaveAdapter.deploy(
   await aavePool.getAddress(),
   await weth.getAddress(),
-  await usdc.getAddress()
+  await usdc.getAddress(),
+  await mockAWeth.getAddress()
 );
 await adapter.waitForDeployment();
 console.log("AaveAdapter:", await adapter.getAddress());

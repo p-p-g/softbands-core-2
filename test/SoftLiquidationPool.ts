@@ -39,11 +39,15 @@ async function deployFixture() {
   // Set auction params: deltaMin=100(1%), d0=50(0.5%), rho=5(0.05%/s), dMax=500(5%), phi=10(0.1%)
   await engine.setAuctionParams(100, 50, 5, 500, 10);
 
+  // Mock aWETH token (AaveAdapter constructor requires it; balanceOf=0 is fine for unit tests)
+  const mockAWeth = await MockERC20.deploy("Mock aWETH", "aWETH", WETH_DECIMALS);
+
   const AaveAdapter = await ethers.getContractFactory("AaveAdapter");
   const adapter = await AaveAdapter.deploy(
     await mockAave.getAddress(),
     await weth.getAddress(),
-    await usdcToken.getAddress()
+    await usdcToken.getAddress(),
+    await mockAWeth.getAddress()
   );
 
   const SoftLiquidationPool = await ethers.getContractFactory("SoftLiquidationPool");

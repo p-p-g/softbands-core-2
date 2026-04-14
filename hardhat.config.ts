@@ -41,6 +41,7 @@ export default defineConfig({
       blockGasLimit: 60_000_000,
       forking: {
         url: configVariable("MAINNET_RPC_URL"),
+        blockNumber: 24870000,
       },
     },
     localhost: {

@@ -18,3 +18,5 @@ node_modules
 
 # Hardhat coverage reports
 /coverage
+
+/REPORT.md

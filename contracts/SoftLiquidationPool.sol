@@ -196,12 +196,18 @@ contract SoftLiquidationPool {
         (uint256 remainingDebt, uint256 remainingCollateral) = getPositionState(positionId);
 
         if (remainingDebt > 0) {
+            // Repay protocol debt. Aave may have accrued minor interest on top;
+            // _capToSafeAaveWithdraw below ensures the withdrawal stays HF-safe.
             usdc.transferFrom(msg.sender, address(aaveAdapter), remainingDebt);
-            aaveAdapter.repay(remainingDebt);
+            aaveAdapter.repayAll();
         }
 
         if (remainingCollateral > 0) {
-            aaveAdapter.withdraw(remainingCollateral, msg.sender);
+            // Cap to Aave-safe amount in case residual interest debt remains after repayAll
+            uint256 safeWithdraw = _capToSafeAaveWithdraw(remainingCollateral);
+            if (safeWithdraw > 0) {
+                aaveAdapter.withdraw(safeWithdraw, msg.sender);
+            }
         }
 
         _removeFromTicks(positionId);
@@ -291,8 +297,12 @@ contract SoftLiquidationPool {
         }
 
         // 6. Withdraw WETH from Aave to liquidator
+        //    Cap withdrawal to Aave-safe amount (bad debt may lock some collateral)
         if (totalCollateralSent > 0) {
-            aaveAdapter.withdraw(totalCollateralSent, msg.sender);
+            totalCollateralSent = _capToSafeAaveWithdraw(totalCollateralSent);
+            if (totalCollateralSent > 0) {
+                aaveAdapter.withdraw(totalCollateralSent, msg.sender);
+            }
         }
 
         // 7. Update auction state
@@ -624,7 +634,10 @@ contract SoftLiquidationPool {
         uint8 bitPos = uint8(uint24(int24(compressed) - (int24(wordPos) << 8)));
 
         // Create mask for all bits at or below bitPos: (1 << (bitPos + 1)) - 1
-        uint256 mask = (uint256(1) << (uint256(bitPos) + 1)) - 1;
+        // When bitPos == 255 the shift would overflow uint256, so use max value instead
+        uint256 mask = bitPos == 255
+            ? type(uint256).max
+            : (uint256(1) << (uint256(bitPos) + 1)) - 1;
         uint256 masked = tickBitmap[wordPos] & mask;
 
         if (masked != 0) {
@@ -679,5 +692,37 @@ contract SoftLiquidationPool {
         if (x >= 0x10) { x >>= 4; r += 4; }
         if (x >= 0x4) { x >>= 2; r += 2; }
         if (x >= 0x2) r += 1;
+    }
+
+    /// @dev Cap a WETH withdrawal amount to what Aave allows without violating HF.
+    ///      Converts the USD-denominated excess collateral to WETH using the ratio
+    ///      aWethBalance/colBase — this avoids needing an explicit oracle price.
+    function _capToSafeAaveWithdraw(uint256 amount) internal view returns (uint256) {
+        (
+            uint256 colBase,
+            uint256 debtBase,
+            ,
+            uint256 lt, // liquidation threshold in BPS (e.g. 8250 = 82.5%)
+            ,
+        ) = aaveAdapter.getAccountData();
+
+        if (debtBase == 0) return amount; // no debt → can withdraw freely
+        if (lt == 0 || colBase == 0) return 0;
+
+        // Required collateral (in base currency) to keep HF >= 1
+        uint256 requiredColBase = (debtBase * 10000 + lt - 1) / lt; // round up
+        if (colBase <= requiredColBase) return 0;
+
+        uint256 excessBase = colBase - requiredColBase;
+
+        // Convert excess from base (USD) to WETH:
+        //   aavePrice ≈ colBase / aWethBalance
+        //   excessWeth = excessBase / aavePrice = excessBase * aWethBalance / colBase
+        uint256 aWethBalance = aaveAdapter.getAWethBalance();
+        if (aWethBalance == 0) return 0;
+
+        // Max withdrawable WETH with 1% safety margin for oracle rounding
+        uint256 maxWithdrawWeth = excessBase * aWethBalance / colBase * 99 / 100;
+        return amount <= maxWithdrawWeth ? amount : maxWithdrawWeth;
     }
 }

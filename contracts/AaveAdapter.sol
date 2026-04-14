@@ -12,6 +12,8 @@ contract AaveAdapter {
     IAavePool public immutable aavePool;
     IERC20 public immutable weth;
     IERC20 public immutable usdc;
+    /// @notice Aave V3 aToken for WETH (e.g. aWETH on mainnet)
+    IERC20 public immutable aWethToken;
     address public pool; // SoftLiquidationPool address
 
     /// @notice Aave V3 variable rate mode
@@ -25,10 +27,11 @@ contract AaveAdapter {
         _;
     }
 
-    constructor(address _aavePool, address _weth, address _usdc) {
+    constructor(address _aavePool, address _weth, address _usdc, address _aWethToken) {
         aavePool = IAavePool(_aavePool);
         weth = IERC20(_weth);
         usdc = IERC20(_usdc);
+        aWethToken = IERC20(_aWethToken);
     }
 
     /// @notice Set the authorized pool contract (can only be set once)
@@ -66,5 +69,36 @@ contract AaveAdapter {
     /// @dev USDC must be transferred to this contract before calling
     function repay(uint256 amount) external onlyPool returns (uint256) {
         return aavePool.repay(address(usdc), amount, VARIABLE_RATE, address(this));
+    }
+
+    /// @notice Repay all available USDC to Aave (covers accrued interest)
+    /// @dev Uses available balance — does NOT use type(uint256).max to avoid
+    ///      attempting to repay more than the adapter holds when multiple positions exist
+    function repayAll() external onlyPool returns (uint256) {
+        uint256 balance = usdc.balanceOf(address(this));
+        if (balance == 0) return 0;
+        return aavePool.repay(address(usdc), balance, VARIABLE_RATE, address(this));
+    }
+
+    /// @notice Return the adapter's Aave account data
+    function getAccountData() external view returns (
+        uint256 totalCollateralBase,
+        uint256 totalDebtBase,
+        uint256 availableBorrowsBase,
+        uint256 currentLiquidationThreshold,
+        uint256 ltv,
+        uint256 healthFactor
+    ) {
+        return aavePool.getUserAccountData(address(this));
+    }
+
+    /// @notice Return the adapter's aWETH balance (= WETH deposited in Aave)
+    function getAWethBalance() external view returns (uint256) {
+        return aWethToken.balanceOf(address(this));
+    }
+
+    /// @notice Transfer excess tokens back to a recipient (e.g. USDC refund after repayAll)
+    function refund(address token, address to, uint256 amount) external onlyPool {
+        IERC20(token).transfer(to, amount);
     }
 }
